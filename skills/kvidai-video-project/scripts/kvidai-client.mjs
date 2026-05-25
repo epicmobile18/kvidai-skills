@@ -34,11 +34,31 @@ export async function getProject(id) {
 
 // ── Agent generate (SSE) ──────────────────────────────────────────────────────
 
-export async function agentGenerate(projectId, message, onTool) {
+export async function agentGenerate(projectId, message, onTool, options = {}) {
+  const { filePaths } = options;
+
+  let fetchInit;
+  if (filePaths?.length) {
+    const { readFile } = await import('node:fs/promises');
+    const { basename } = await import('node:path');
+    const fd = new FormData();
+    fd.append('data', JSON.stringify({ projectId, message, chatHistory: [] }));
+    for (const fp of filePaths) {
+      const buf = await readFile(fp);
+      fd.append('files', new Blob([buf]), basename(fp));
+    }
+    // NO Content-Type header — let fetch set multipart boundary automatically
+    fetchInit = { method: 'POST', headers: { 'api-key': API_KEY }, body: fd };
+  } else {
+    fetchInit = {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'api-key': API_KEY },
+      body: JSON.stringify({ projectId, message, chatHistory: [] }),
+    };
+  }
+
   const r = await fetch(`${BASE_URL}/agent/generate`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'api-key': API_KEY },
-    body: JSON.stringify({ projectId, message, chatHistory: [] }),
+    ...fetchInit,
     signal: AbortSignal.timeout(5 * 60 * 1000),
   });
   if (!r.ok || !r.body) throw new Error(`agentGenerate ${r.status}: ${await r.text()}`);
@@ -182,9 +202,15 @@ switch (cmd) {
     break;
   }
   case 'agent-generate': {
-    const [pid, msg] = args;
+    // usage: node kvidai-client.mjs agent-generate <projectId> <message> [file1] [file2...]
+    const [pid, msg, ...files] = args;
     log(`Streaming agent for project ${pid}...`);
-    const tools = await agentGenerate(Number(pid), msg ?? '', (t) => log(`  ▸ ${t}`));
+    const tools = await agentGenerate(
+      Number(pid),
+      msg ?? '',
+      (t) => log(`  ▸ ${t}`),
+      files.length ? { filePaths: files } : {}
+    );
     log(`\nDone. Tools: ${tools.join(', ')}`);
     console.log(`https://kvid.ai/en/editor/${pid}`);
     break;
@@ -234,5 +260,6 @@ switch (cmd) {
   }
   default:
     console.error('Usage: node kvidai-client.mjs create-project|get-project|agent-generate|poll-status|upload-assets|add-composition-asset|attach-media [args]');
+    console.error('  agent-generate <projectId> <message> [file1] [file2...]  — files sent as multipart alongside generate request');
     process.exit(1);
 }

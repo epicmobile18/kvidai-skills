@@ -30,6 +30,9 @@ KVIDAI_API_KEY=xxx node $SKILL get-project 260
 # Generate video via AI agent (SSE, 1-3 min)
 KVIDAI_API_KEY=xxx node $SKILL agent-generate 260 "고양이가 뛰는 5초짜리 세로형 영상"
 
+# Generate with local files attached (multipart — files uploaded inline with generate request)
+KVIDAI_API_KEY=xxx node $SKILL agent-generate 260 "reference.jpg 이미지를 배경으로 활용해" reference.jpg broll.mp4
+
 # Poll async generation status
 KVIDAI_API_KEY=xxx node $SKILL poll-status <jobId>
 
@@ -58,7 +61,16 @@ KVIDAI_API_KEY=xxx STRAPI_TOKEN=xxx node $SKILL attach-media 260 42 43 44
 ## Asset upload workflow (with local files)
 
 **Important**: `/video-project/create` is JSON-only — files cannot be attached at creation time.
-Upload must be a separate step before `agent-generate`.
+
+### Option A — inline (files sent with generate request)
+
+```
+1. create-project "name"                                              → projectId
+2. agent-generate <id> "<message>" file1.jpg file2.mp4               → SSE stream
+   (files uploaded to CDN and injected into composition.assets before agent runs)
+```
+
+### Option B — separate upload (more control, attach to media library)
 
 ```
 1. create-project "name"                        → projectId
@@ -69,7 +81,7 @@ Upload must be a separate step before `agent-generate`.
 5. agent-generate <id> "<describe use of assets>"  → SSE stream
 ```
 
-**End-to-end example**: see `scripts/examples/with-assets/run.mjs`
+**End-to-end example (Option B)**: see `scripts/examples/with-assets/run.mjs`
 
 ## REST API reference
 
@@ -82,14 +94,30 @@ api-key: {KVIDAI_API_KEY}
 → {"success": true, "data": {"id": 260, ...}}
 ```
 
-**Agent generate (SSE)**
+**Agent generate (SSE) — JSON**
 
 ```
 POST {KVIDAI_BASE_URL}/agent/generate
 api-key: {KVIDAI_API_KEY}
+Content-Type: application/json
 {"projectId": 260, "message": "영상 설명", "chatHistory": []}
 → SSE: event: tool_start/tool_end/heartbeat, data: {toolName, success, ...}
 ```
+
+**Agent generate with files — multipart (base64 fallback kept)**
+
+```
+POST {KVIDAI_BASE_URL}/agent/generate
+api-key: {KVIDAI_API_KEY}
+Content-Type: multipart/form-data  (boundary set by fetch automatically)
+
+data: {"projectId": 260, "message": "영상 설명", "chatHistory": []}  ← JSON string
+files: <binary file 1>
+files: <binary file 2>
+→ same SSE stream; files are uploaded to CDN and injected into composition.assets before agent runs
+```
+
+Note: files in multipart are uploaded to CDN internally — no separate `upload-assets` step needed.
 
 **SSE pattern (Node.js 20+)**
 
