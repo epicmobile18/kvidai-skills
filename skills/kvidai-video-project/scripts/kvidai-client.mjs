@@ -92,6 +92,81 @@ export async function pollStatus(jobId, { intervalMs = 10_000, timeoutMs = 10 * 
   }
 }
 
+// ── Asset upload ──────────────────────────────────────────────────────────────
+
+/**
+ * Upload local files to Strapi via /api/media-management/upload.
+ * No JWT required — uses email-based public role endpoint.
+ * @param {Object}   opts
+ * @param {string[]} opts.filePaths  Absolute or relative paths to local files
+ * @param {string}   opts.email      User email (must exist in Strapi DB)
+ * @returns {Promise<Array<{id: number, url: string, name: string}>>}
+ */
+export async function uploadAssets({ filePaths, email }) {
+  const { readFile } = await import('node:fs/promises');
+  const { basename } = await import('node:path');
+
+  const formData = new FormData();
+  formData.append('email', email);
+  for (const filePath of filePaths) {
+    const buf = await readFile(filePath);
+    formData.append('files', new Blob([buf]), basename(filePath));
+  }
+
+  const r = await fetch(`${BASE_URL}/api/media-management/upload`, {
+    method: 'POST',
+    headers: { 'api-key': API_KEY },
+    body: formData,
+  });
+  if (!r.ok) throw new Error(`uploadAssets ${r.status}: ${await r.text()}`);
+  const d = await r.json();
+  if (!d.success) throw new Error(`uploadAssets failed: ${JSON.stringify(d)}`);
+  return d.data.map((f) => ({ id: f.id, url: f.url, name: f.name }));
+}
+
+/**
+ * Add an asset to a project's composition so the agent can reference it on the timeline.
+ * Uses PATCH /video-project/:id/composition with operation "add_asset".
+ * @param {number} projectId
+ * @param {string} email
+ * @param {{ id: string, type: string, remoteUrl: string, [key: string]: any }} asset
+ */
+export async function addCompositionAsset(projectId, email, asset) {
+  const r = await fetch(`${BASE_URL}/video-project/${projectId}/composition`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', 'api-key': API_KEY },
+    body: JSON.stringify({ email, operation: 'add_asset', data: { asset } }),
+  });
+  if (!r.ok) throw new Error(`addCompositionAsset ${r.status}: ${await r.text()}`);
+  return r.json();
+}
+
+/**
+ * Attach uploaded file IDs to a project's media relation (Strapi morph relation — origin archive).
+ * Requires STRAPI_TOKEN (Bearer) env var — the standard /api/video-projects PUT needs auth.
+ * Optional: composition.assets is sufficient for the agent; this is for the library/archive side.
+ * @param {number}   projectId
+ * @param {number[]} fileIds
+ */
+export async function attachMediaToProject(projectId, fileIds) {
+  const token = process.env.STRAPI_TOKEN;
+  if (!token) {
+    log('STRAPI_TOKEN not set — skipping media field attach (composition.assets is sufficient for agent)');
+    return null;
+  }
+  const r = await fetch(`${BASE_URL}/api/video-projects/${projectId}`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      'api-key': API_KEY,
+      'Authorization': `Bearer ${token}`,
+    },
+    body: JSON.stringify({ data: { media: fileIds } }),
+  });
+  if (!r.ok) throw new Error(`attachMediaToProject ${r.status}: ${await r.text()}`);
+  return r.json();
+}
+
 // ── CLI entry ─────────────────────────────────────────────────────────────────
 
 const [cmd, ...args] = process.argv.slice(2);
@@ -119,7 +194,45 @@ switch (cmd) {
     console.log(JSON.stringify(result, null, 2));
     break;
   }
+  case 'upload-assets': {
+    // usage: node kvidai-client.mjs upload-assets <email> <file1> [file2] [file3]
+    const [email, ...files] = args;
+    if (!email || files.length === 0) {
+      console.error('Usage: node kvidai-client.mjs upload-assets <email> <file1> [file2...]');
+      process.exit(1);
+    }
+    log(`Uploading ${files.length} file(s) for ${email}...`);
+    const uploaded = await uploadAssets({ filePaths: files, email });
+    uploaded.forEach((f) => log(`  ✓ ${f.name} → id=${f.id} url=${f.url}`));
+    console.log(JSON.stringify(uploaded, null, 2));
+    break;
+  }
+  case 'add-composition-asset': {
+    // usage: node kvidai-client.mjs add-composition-asset <projectId> <email> <assetJson>
+    // assetJson: '{"id":"asset_1","type":"image","remoteUrl":"https://..."}'
+    const [pid, email, assetJson] = args;
+    if (!pid || !email || !assetJson) {
+      console.error('Usage: node kvidai-client.mjs add-composition-asset <projectId> <email> <assetJson>');
+      process.exit(1);
+    }
+    const asset = JSON.parse(assetJson);
+    const result = await addCompositionAsset(Number(pid), email, asset);
+    console.log(JSON.stringify(result, null, 2));
+    break;
+  }
+  case 'attach-media': {
+    // usage: node kvidai-client.mjs attach-media <projectId> <fileId1> [fileId2...]
+    // requires STRAPI_TOKEN env var
+    const [pid, ...ids] = args;
+    if (!pid || ids.length === 0) {
+      console.error('Usage: node kvidai-client.mjs attach-media <projectId> <fileId1> [fileId2...]');
+      process.exit(1);
+    }
+    const result = await attachMediaToProject(Number(pid), ids.map(Number));
+    console.log(result ? JSON.stringify(result, null, 2) : 'skipped (STRAPI_TOKEN not set)');
+    break;
+  }
   default:
-    console.error('Usage: node kvidai-client.mjs create-project|get-project|agent-generate|poll-status [args]');
+    console.error('Usage: node kvidai-client.mjs create-project|get-project|agent-generate|poll-status|upload-assets|add-composition-asset|attach-media [args]');
     process.exit(1);
 }

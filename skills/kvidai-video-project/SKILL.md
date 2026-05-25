@@ -12,6 +12,8 @@ All paths below are relative to the **kvidai monorepo root**.
 ```bash
 export KVIDAI_API_KEY="<prod-contents-apim-key>"
 export KVIDAI_BASE_URL="https://api.kvid.ai" # default if not set
+export KVIDAI_USER_EMAIL="user@example.com"  # required for asset upload
+export STRAPI_TOKEN="<strapi-api-token>"     # optional — only for media field attach
 ```
 
 ## Run (agent path)
@@ -30,6 +32,18 @@ KVIDAI_API_KEY=xxx node $SKILL agent-generate 260 "고양이가 뛰는 5초짜�
 
 # Poll async generation status
 KVIDAI_API_KEY=xxx node $SKILL poll-status <jobId>
+
+# --- Asset upload (with local files) ---
+
+# Upload files → prints JSON with id + CDN url per file
+KVIDAI_API_KEY=xxx node $SKILL upload-assets user@example.com brief.md reference.jpg broll.mp4
+
+# Add uploaded file URL to project composition (agent sees it on timeline)
+KVIDAI_API_KEY=xxx node $SKILL add-composition-asset 260 user@example.com \
+  '{"id":"asset_ref1","type":"image","remoteUrl":"https://cdn.example.com/reference.jpg"}'
+
+# (Optional) Attach file IDs to project media library (requires STRAPI_TOKEN)
+KVIDAI_API_KEY=xxx STRAPI_TOKEN=xxx node $SKILL attach-media 260 42 43 44
 ```
 
 ## Core workflow
@@ -40,6 +54,22 @@ KVIDAI_API_KEY=xxx node $SKILL poll-status <jobId>
    (streams tool events: generate_voice → generate_image → update_item → add_solid → add_text)
 3. (optional async) poll-status <jobId>  → wait for completed
 ```
+
+## Asset upload workflow (with local files)
+
+**Important**: `/video-project/create` is JSON-only — files cannot be attached at creation time.
+Upload must be a separate step before `agent-generate`.
+
+```
+1. create-project "name"                        → projectId
+2. upload-assets <email> file1 file2 file3      → [{ id, url, name }, ...]
+3. add-composition-asset <id> <email> <asset>   → adds remoteUrl to composition.assets
+   (repeat for each file; agent references these assets on the timeline)
+4. (optional) attach-media <id> fileId...       → links to project media library (STRAPI_TOKEN required)
+5. agent-generate <id> "<describe use of assets>"  → SSE stream
+```
+
+**End-to-end example**: see `scripts/examples/with-assets/run.mjs`
 
 ## REST API reference
 
@@ -107,6 +137,54 @@ GET {KVIDAI_BASE_URL}/ai/generation/status?jobId={jobId}
 api-key: {KVIDAI_API_KEY}
 ```
 
+**Upload assets** (multipart, no JWT — email-based public endpoint)
+
+```
+POST {KVIDAI_BASE_URL}/api/media-management/upload
+api-key: {KVIDAI_API_KEY}
+Content-Type: multipart/form-data
+
+fields:
+  email: user@example.com       (must exist in DB)
+  files: <binary file>          (repeat per file)
+
+→ { success: true, data: [{ id, url, name, mime, size }, ...] }
+```
+
+**Alternative (Strapi standard — upload + attach in one call, requires Bearer JWT)**
+
+```
+POST {KVIDAI_BASE_URL}/api/upload?ref=api::video-project.video-project&refId={projectId}&field=media
+Authorization: Bearer {STRAPI_TOKEN}
+Content-Type: multipart/form-data
+
+fields:
+  files: <binary file>
+
+→ [{ id, url, name, ... }]   (file auto-linked to project.media)
+```
+
+**Add asset to composition timeline**
+
+```
+PATCH {KVIDAI_BASE_URL}/video-project/{id}/composition
+api-key: {KVIDAI_API_KEY}
+{ "email": "user@example.com",
+  "operation": "add_asset",
+  "data": { "asset": { "id": "asset_ref1", "type": "image", "remoteUrl": "https://cdn.example.com/img.jpg" } } }
+
+→ { data: { composition: { assets: { "asset_ref1": { ... } } } } }
+```
+
+**Attach files to project media library** (optional archive — requires STRAPI_TOKEN)
+
+```
+PUT {KVIDAI_BASE_URL}/api/video-projects/{id}
+api-key: {KVIDAI_API_KEY}
+Authorization: Bearer {STRAPI_TOKEN}
+{ "data": { "media": [fileId1, fileId2] } }
+```
+
 ## Import in JavaScript (ESM)
 
 ```js
@@ -125,6 +203,10 @@ For marketing-studio: use `@marketing-studio/send-video-kvidai` (wraps the same 
 - **SSE stream runs 1-3 minutes** — always set `AbortSignal.timeout(300_000)`. Do not use a 60-second timeout.
 - **heartbeat lines** (`": heartbeat"`) fire between tool calls. Skip them; only parse `event:` + `data:` lines.
 - **Async t2v endpoint** unreachable from this dev container (HTTP 000). Works from production environments.
+- **`/video-project/create` is JSON-only** — cannot include files in the create call. Upload is always a separate step.
+- **`uploadAssets` needs a registered user email** — the email must exist in Strapi DB. Upload will 404 if not found.
+- **`attachMediaToProject` needs STRAPI_TOKEN** — the `api-key` header alone cannot write to the Strapi morph relation. Set `STRAPI_TOKEN` or skip this step (composition.assets is sufficient for the agent).
+- **Content-Type must NOT be set manually for multipart** — let `fetch` set the boundary automatically.
 
 ## Troubleshooting
 
