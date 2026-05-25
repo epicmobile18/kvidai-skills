@@ -3,9 +3,7 @@
 // Usage: node kvidai-client.mjs <command> [args...]
 
 const BASE_URL = process.env.KVIDAI_BASE_URL ?? 'https://api.kvid.ai';
-const AGENT_BASE = process.env.KVIDAI_AGENT_BASE_URL ?? 'https://api.kvid.ai/agent';
 const API_KEY = process.env.KVIDAI_API_KEY ?? '';
-const CONTENTS_KEY = process.env.KVIDAI_CONTENTS_KEY ?? '';
 
 if (!API_KEY) throw new Error('KVIDAI_API_KEY not set');
 
@@ -37,7 +35,7 @@ export async function getProject(id) {
 // ── Agent generate (SSE) ──────────────────────────────────────────────────────
 
 export async function agentGenerate(projectId, message, onTool) {
-  const r = await fetch(`${AGENT_BASE}/generate`, {
+  const r = await fetch(`${BASE_URL}/agent/generate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'api-key': API_KEY },
     body: JSON.stringify({ projectId, message, chatHistory: [] }),
@@ -77,7 +75,7 @@ export async function agentGenerate(projectId, message, onTool) {
 // ── Async generation status ───────────────────────────────────────────────────
 
 export async function pollStatus(jobId, { intervalMs = 10_000, timeoutMs = 10 * 60 * 1000 } = {}) {
-  const key = CONTENTS_KEY || API_KEY;
+  const key = API_KEY;
   const start = Date.now();
   while (true) {
     const r = await fetch(`${BASE_URL}/ai/generation/status?jobId=${encodeURIComponent(jobId)}`, {

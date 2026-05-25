@@ -11,9 +11,7 @@ All paths below are relative to the **kvidai monorepo root**.
 
 ```bash
 export KVIDAI_API_KEY="<prod-contents-apim-key>"
-export KVIDAI_BASE_URL="https://api.kvid.ai"            # default if not set
-export KVIDAI_AGENT_BASE_URL="https://api.kvid.ai/agent" # default if not set
-export KVIDAI_CONTENTS_KEY="<ai-contents-key>"          # for async t2v
+export KVIDAI_BASE_URL="https://api.kvid.ai" # default if not set
 ```
 
 ## Run (agent path)
@@ -31,7 +29,7 @@ KVIDAI_API_KEY=xxx node $SKILL get-project 260
 KVIDAI_API_KEY=xxx node $SKILL agent-generate 260 "고양이가 뛰는 5초짜리 세로형 영상"
 
 # Poll async generation status
-KVIDAI_API_KEY=xxx KVIDAI_CONTENTS_KEY=xxx node $SKILL poll-status <jobId>
+KVIDAI_API_KEY=xxx node $SKILL poll-status <jobId>
 ```
 
 ## Core workflow
@@ -57,7 +55,7 @@ api-key: {KVIDAI_API_KEY}
 **Agent generate (SSE)**
 
 ```
-POST {KVIDAI_AGENT_BASE_URL}/generate
+POST {KVIDAI_BASE_URL}/agent/generate
 api-key: {KVIDAI_API_KEY}
 {"projectId": 260, "message": "영상 설명", "chatHistory": []}
 → SSE: event: tool_start/tool_end/heartbeat, data: {toolName, success, ...}
@@ -97,7 +95,7 @@ api-key: {KVIDAI_API_KEY}
 
 ```
 POST {KVIDAI_BASE_URL}/ai/generation/text-to-video/generate-async
-api-key: {KVIDAI_CONTENTS_KEY}
+api-key: {KVIDAI_API_KEY}
 {"email":"user@example.com","prompt":"...","model":"veo3.1","function":"txt2vid","duration":5,"resolution":"720p","aspect_ratio":"16:9"}
 → {"jobId": "..."}
 ```
@@ -106,7 +104,7 @@ api-key: {KVIDAI_CONTENTS_KEY}
 
 ```
 GET {KVIDAI_BASE_URL}/ai/generation/status?jobId={jobId}
-api-key: {KVIDAI_CONTENTS_KEY}
+api-key: {KVIDAI_API_KEY}
 ```
 
 ## Import in JavaScript (ESM)
@@ -126,7 +124,6 @@ For marketing-studio: use `@marketing-studio/send-video-kvidai` (wraps the same 
 
 - **SSE stream runs 1-3 minutes** — always set `AbortSignal.timeout(300_000)`. Do not use a 60-second timeout.
 - **heartbeat lines** (`": heartbeat"`) fire between tool calls. Skip them; only parse `event:` + `data:` lines.
-- **`KVIDAI_API_KEY` ≠ `KVIDAI_CONTENTS_KEY`** — project CRUD + agent use `prod-contents-apim-key`; async t2v uses `ai_contents_key`.
 - **Async t2v endpoint** unreachable from this dev container (HTTP 000). Works from production environments.
 
 ## Troubleshooting
