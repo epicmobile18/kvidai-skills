@@ -1,6 +1,6 @@
 ---
 name: kvidai-video-project
-description: Use when you need to call the kvidai API to create video projects, generate videos with AI auto-editing, or check generation status. Triggers on: create video project, generate video, auto-edit video, kvidai API, video-project CRUD, 영상 생성, 프로젝트 생성, 상태 조회, start video generation, poll job status. Use this skill whenever an agent (Claude Code, Codex CLI, Hermes) needs to interact with the kvidai video platform programmatically.
+description: "Use when you need to call the kvidai API to create video projects, generate videos with AI auto-editing, or check generation status. Triggers on: create video project, generate video, auto-edit video, kvidai API, video-project CRUD, 영상 생성, 프로젝트 생성, 상태 조회, start video generation, poll job status. Use this skill whenever an agent (Claude Code, Codex CLI, Hermes) needs to interact with the kvidai video platform programmatically."
 ---
 
 The kvidai API auto-generates videos from natural language via an SSE-streaming AI agent. The client lives at `.claude/skills/kvidai-video-project/scripts/kvidai-client.mjs` and runs with plain `node`.
