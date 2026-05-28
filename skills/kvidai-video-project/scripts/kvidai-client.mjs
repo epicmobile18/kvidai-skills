@@ -11,11 +11,19 @@ const log = (...args) => console.error('[kvidai]', ...args);
 
 // ── Project CRUD ──────────────────────────────────────────────────────────────
 
-export async function createProject(name) {
+/**
+ * @param {string} name
+ * @param {Object} [options]
+ * @param {string} [options.presetId]  Preset 의 presetId (e.g. "review-owl"). prod 에 등록된 presetId 사용. 미지정 시 system_default fallback.
+ */
+export async function createProject(name, options = {}) {
+  const { presetId } = options;
+  const body = { name };
+  if (presetId) body.presetId = presetId;
   const r = await fetch(`${BASE_URL}/video-project/create`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'api-key': API_KEY },
-    body: JSON.stringify({ name }),
+    body: JSON.stringify(body),
   });
   if (!r.ok) throw new Error(`createProject ${r.status}: ${await r.text()}`);
   const d = await r.json();
@@ -34,11 +42,21 @@ export async function getProject(id) {
 
 // ── Agent generate (SSE) ──────────────────────────────────────────────────────
 
+/**
+ * @param {number}   projectId
+ * @param {string}   message
+ * @param {Function} [onTool]
+ * @param {Object}   [options]
+ * @param {string[]} [options.filePaths]      Legacy: 멀티파트 업로드 (서버가 받아서 처리). 큰 파일에는 비효율
+ * @param {Array}    [options.attachedFiles]  Recommended: kvidai-media 로 미리 업로드한 cdnUrl 배열.
+ *                                            Shape: [{ name, type:'image|video|audio'|'pdf'|'text', mimeType, size, cdnUrl }]
+ */
 export async function agentGenerate(projectId, message, onTool, options = {}) {
-  const { filePaths } = options;
+  const { filePaths, attachedFiles } = options;
 
   let fetchInit;
   if (filePaths?.length) {
+    // Legacy multipart 흐름 — kvidai-media presigned 사용을 권장하나 호환성 위해 유지
     const { readFile } = await import('node:fs/promises');
     const { basename } = await import('node:path');
     const fd = new FormData();
@@ -50,10 +68,12 @@ export async function agentGenerate(projectId, message, onTool, options = {}) {
     // NO Content-Type header — let fetch set multipart boundary automatically
     fetchInit = { method: 'POST', headers: { 'api-key': API_KEY }, body: fd };
   } else {
+    const body = { projectId, message, chatHistory: [] };
+    if (attachedFiles?.length) body.attachedFiles = attachedFiles;
     fetchInit = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'api-key': API_KEY },
-      body: JSON.stringify({ projectId, message, chatHistory: [] }),
+      body: JSON.stringify(body),
     };
   }
 
@@ -192,7 +212,14 @@ export async function attachMediaToProject(projectId, fileIds) {
 const [cmd, ...args] = process.argv.slice(2);
 switch (cmd) {
   case 'create-project': {
-    const id = await createProject(args[0] ?? 'New Project');
+    // usage: node kvidai-client.mjs create-project <name> [--preset-id <presetId>]
+    const positional = [];
+    const opts = {};
+    for (let i = 0; i < args.length; i++) {
+      if (args[i] === '--preset-id' || args[i] === '--presetId') opts.presetId = args[++i];
+      else positional.push(args[i]);
+    }
+    const id = await createProject(positional[0] ?? 'New Project', opts);
     console.log(id);
     break;
   }
@@ -202,15 +229,53 @@ switch (cmd) {
     break;
   }
   case 'agent-generate': {
-    // usage: node kvidai-client.mjs agent-generate <projectId> <message> [file1] [file2...]
-    const [pid, msg, ...files] = args;
+    // usage:
+    //   node kvidai-client.mjs agent-generate <projectId> <message> [file1] [file2...]
+    //   node kvidai-client.mjs agent-generate <projectId> <message> --cdn-url <url> [--mime <type>] [--filename <name>] [--size <bytes>]
+    //
+    // --cdn-url 사용 시 kvidai-media 로 미리 업로드한 URL 직접 첨부 (recommended for large files).
+    // multipart filePaths 와 cdnUrl 은 mutually exclusive — cdnUrl 있으면 JSON body 흐름.
+    const positional = [];
+    const cdnAttachments = [];
+    let pending = {};
+    for (let i = 0; i < args.length; i++) {
+      const a = args[i];
+      if (a === '--cdn-url') {
+        if (pending.cdnUrl) { cdnAttachments.push(pending); pending = {}; }
+        pending.cdnUrl = args[++i];
+      } else if (a === '--mime') pending.mimeType = args[++i];
+      else if (a === '--filename') pending.name = args[++i];
+      else if (a === '--size') pending.size = Number(args[++i]);
+      else positional.push(a);
+    }
+    if (pending.cdnUrl) cdnAttachments.push(pending);
+
+    const [pid, msg, ...filePaths] = positional;
     log(`Streaming agent for project ${pid}...`);
-    const tools = await agentGenerate(
-      Number(pid),
-      msg ?? '',
-      (t) => log(`  ▸ ${t}`),
-      files.length ? { filePaths: files } : {}
-    );
+
+    let opts = {};
+    if (cdnAttachments.length) {
+      // mime/type 추정 (사용자가 안 주면 url 으로 추측)
+      const inferType = (mime) => {
+        if (!mime) return 'image';
+        if (mime.startsWith('image/')) return 'image';
+        if (mime.startsWith('video/')) return 'video';
+        if (mime.startsWith('audio/')) return 'audio';
+        if (mime === 'application/pdf') return 'pdf';
+        return 'text';
+      };
+      opts.attachedFiles = cdnAttachments.map((a) => ({
+        name: a.name ?? a.cdnUrl.split('/').pop() ?? 'attachment',
+        type: inferType(a.mimeType),
+        mimeType: a.mimeType ?? 'application/octet-stream',
+        size: a.size ?? 0,
+        cdnUrl: a.cdnUrl,
+      }));
+    } else if (filePaths.length) {
+      opts.filePaths = filePaths;
+    }
+
+    const tools = await agentGenerate(Number(pid), msg ?? '', (t) => log(`  ▸ ${t}`), opts);
     log(`\nDone. Tools: ${tools.join(', ')}`);
     console.log(`https://kvid.ai/en/editor/${pid}`);
     break;
