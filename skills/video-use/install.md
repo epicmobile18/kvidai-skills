@@ -108,7 +108,7 @@ python ~/Developer/video-use/helpers/timeline_view.py --help >/dev/null && echo 
 ffprobe -version | head -1
 ```
 
-Full transcription test is optional at install time — it burns Scribe credits. Better to wait until the user hands you their first clip.
+Transcription test is optional at install time — ElevenLabs Scribe is currently disabled. Use `whisperx` for local transcription.
 
 ### 7. Hand off
 
