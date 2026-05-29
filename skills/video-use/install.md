@@ -1,6 +1,6 @@
 ---
 name: video-use-install
-description: Install video-use into the current agent (Claude Code, Codex, Hermes, Openclaw, etc.) and wire up ffmpeg + the ElevenLabs API key so the user can start editing immediately.
+description: Install video-use into the current agent (Claude Code, Codex, Hermes, Openclaw, etc.) and wire up ffmpeg so the user can start editing immediately.
 ---
 
 # video-use install
@@ -15,7 +15,7 @@ Three things must exist on this machine:
 
 1. The `video-use` repo cloned somewhere stable.
 2. `ffmpeg` on `$PATH` (plus optional `yt-dlp` for online sources).
-3. An ElevenLabs API key in `.env` at the repo root (for Scribe transcription).
+3. `whisperx` available for local transcription (`pip install whisperx`).
 
 And one thing must be true about the current agent:
 
@@ -23,7 +23,7 @@ And one thing must be true about the current agent:
 
 ## Install prompt contract
 
-- Do everything yourself. Only ask the user for things you cannot generate — the ElevenLabs API key, and confirmation before `brew install`.
+- Do everything yourself. Only ask the user for things you cannot generate — confirmation before `brew install`.
 - Prefer a stable clone path like `~/Developer/video-use` (not `/tmp`, not `~/Downloads`).
 - The skill references helpers by bare name (`transcribe.py`, `render.py`). That works because SKILL.md and `helpers/` ship together — keep them as siblings when you register the skill.
 - After install, verify by running one real command against one real file. Don't declare success on file-existence checks alone.
@@ -91,8 +91,8 @@ If you can't tell which agent you're in, ask the user once: "which agent am I ru
 
 ### 5. Transcription
 
-ElevenLabs Scribe is disabled — kvidai voice API will handle transcription in a future update.
-Use `whisper` or `whisperx` locally for transcription in the meantime.
+Voice generation is handled by `kvidai-video-project` (`generate_voice`).
+Use `whisperx` locally for transcription.
 
 ```bash
 # Check whisper/whisperx availability
@@ -108,7 +108,7 @@ python ~/Developer/video-use/helpers/timeline_view.py --help >/dev/null && echo 
 ffprobe -version | head -1
 ```
 
-Transcription test is optional at install time — ElevenLabs Scribe is currently disabled. Use `whisperx` for local transcription.
+Transcription test is optional at install time. Use `whisperx` for local transcription.
 
 ### 7. Hand off
 
@@ -133,5 +133,5 @@ Tell the user, in one short message:
 - Node.js 20+ is needed for HyperFrames slots or kvidai handoff. HyperFrames currently requires Node.js 22+.
 - HyperFrames and Manim are optional local animation engines. Don't install or prefer one globally during setup; pick the engine per animation slot in `SKILL.md`. HyperFrames can run through `npx --yes hyperframes ...` in the slot directory.
 - For kvidai handoff, set `KVIDAI_API_KEY` in the environment. The client script lives at `skills/kvidai-video-project/scripts/kvidai-client.mjs` and needs no separate install — run with `node kvidai-client.mjs`.
-- Never run transcription as part of install verification unless the user explicitly asks — Scribe costs real money.
+- Never run transcription as part of install verification unless the user explicitly asks.
 - If the user is on Linux without a package manager Claude recognizes, print the manual `ffmpeg` install URL and wait rather than guessing.

@@ -24,8 +24,8 @@ These are the things where deviation produces silent failures or broken output. 
 3. **30ms audio fades at every segment boundary** (`afade=t=in:st=0:d=0.03,afade=t=out:st={dur-0.03}:d=0.03`). Otherwise audible pops at every cut.
 4. **Overlays use `setpts=PTS-STARTPTS+T/TB`** to shift the overlay's frame 0 to its window start. Otherwise you see the middle of the animation during the overlay window.
 5. **Master SRT uses output-timeline offsets**: `output_time = word.start - segment_start + segment_offset`. Otherwise captions misalign after segment concat.
-6. **Never cut inside a word.** Snap every cut edge to a word boundary from the Scribe transcript.
-7. **Pad every cut edge.** Working window: 30–200ms. Scribe timestamps drift 50–100ms — padding absorbs the drift. Tighter for fast-paced, looser for cinematic.
+6. **Never cut inside a word.** Snap every cut edge to a word boundary from the transcript.
+7. **Pad every cut edge.** Working window: 30–200ms. Transcript timestamps drift 50–100ms — padding absorbs the drift. Tighter for fast-paced, looser for cinematic.
 8. **Word-level verbatim ASR only.** Never SRT/phrase mode (loses sub-second gap data). Never normalized fillers (loses editorial signal).
 9. **Cache transcripts per source.** Never re-transcribe unless the source file itself changed.
 10. **Parallel sub-agents for multiple animations.** Never sequential. Spawn N at once via the `Agent` tool; total wall time ≈ slowest one.
@@ -45,7 +45,7 @@ The skill lives in `video-use/`. User footage lives wherever they put it. All se
     ├── project.md               ← memory; appended every session
     ├── takes_packed.md          ← phrase-level transcripts, the LLM's primary reading view
     ├── edl.json                 ← cut decisions
-    ├── transcripts/<name>.json  ← cached raw Scribe JSON
+    ├── transcripts/<name>.json  ← cached raw transcript JSON (whisperx)
     ├── animations/slot_<id>/    ← per-animation source + render + reasoning
     ├── clips_graded/            ← per-segment extracts with grade + fades
     ├── master.srt               ← output-timeline subtitles
@@ -59,7 +59,7 @@ The skill lives in `video-use/`. User footage lives wherever they put it. All se
 
 First-time install lives in `install.md` (clone, deps, ffmpeg, skill registration, API key). Don't re-run it every session; on cold start just verify:
 
-- **Transcription**: ElevenLabs Scribe is disabled — kvidai voice API will handle this in a future update. Use `whisper`/`whisperx` locally for transcription if needed.
+- **Transcription**: use `whisperx` locally. **Voice generation** is handled by `kvidai-video-project` (`generate_voice` tool in `agent-generate`).
 - `ffmpeg` + `ffprobe` on PATH.
 - Python deps installed (`uv sync` or `pip install -e .` inside the repo).
 - Node.js 20+ available if the session needs HyperFrames slots or the kvidai handoff. HyperFrames currently requires Node.js 22+.
@@ -72,7 +72,7 @@ Helpers (`helpers/transcribe.py`, `helpers/render.py`, etc.) live alongside this
 
 ## Helpers
 
-- **`transcribe.py <video>`** — single-file Scribe call. `--num-speakers N` optional. Cached.
+- **`transcribe.py <video>`** — single-file transcription (whisperx). `--num-speakers N` optional. Cached.
 - **`transcribe_batch.py <videos_dir>`** — 4-worker parallel transcription. Use for multi-take.
 - **`pack_transcripts.py --edit-dir <dir>`** — `transcripts/*.json` → `takes_packed.md` (phrase-level, break on silence ≥ 0.5s).
 - **`timeline_view.py <video> <start> <end>`** — filmstrip + waveform PNG. On-demand visual drill-down. **Not a scan tool** — use it at decision points, not constantly.
@@ -402,7 +402,7 @@ Things that consistently fail regardless of style:
 - **Hierarchical pre-computed codec formats** with USABILITY / tone tags / shot layers. Over-engineering. Derive from the transcript at decision time.
 - **Hand-tuned moment-scoring functions.** The LLM picks better than any heuristic you'll write.
 - **Whisper SRT / phrase-level output.** Loses sub-second gap data. Always word-level verbatim.
-- **Running Whisper locally on CPU.** Slow and it normalizes fillers. Use hosted Scribe when available — currently ElevenLabs Scribe is disabled; use `whisperx` as a local alternative.
+- **Running Whisper locally on CPU.** Slow and it normalizes fillers. Use `whisperx` with GPU acceleration when available.
 - **Burning subtitles into base before compositing overlays.** Overlays hide them. (Hard Rule 1.)
 - **Single-pass filtergraph when you have overlays.** Double re-encodes. Use per-segment extract → concat.
 - **Linear animation easing.** Looks robotic. Always cubic.
