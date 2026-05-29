@@ -7,10 +7,15 @@ Claude Code Agent Skills for the kvidai video platform.
 ```
 kvidai-skills/
 ├── skills/
-│   └── kvidai-video-project/      # Create projects, generate videos via AI agent (SSE)
-│       ├── SKILL.md               # Skill definition (name, description, API reference)
-│       └── scripts/
-│           └── kvidai-client.mjs  # CLI client (Node.js 20+, no tsx needed)
+│   ├── kvidai-video-project/      # Create projects, generate videos via AI agent (SSE)
+│   │   ├── SKILL.md               # Skill definition (name, description, API reference)
+│   │   └── scripts/
+│   │       └── kvidai-client.mjs  # CLI client (Node.js 20+, no tsx needed)
+│   └── video-use/                 # Conversation-driven video editor (transcribe→cut→grade→subtitle→kvidai handoff)
+│       ├── SKILL.md               # Full editing skill (Remotion replaced by kvidai)
+│       ├── install.md             # Setup instructions
+│       ├── helpers/               # Python helpers (transcribe, render, grade, …)
+│       └── skills/manim-video/    # Vendored Manim animation sub-skill
 ├── AGENTS.md                      # This file (AI guide)
 ├── CLAUDE.md                      # Symlink → AGENTS.md
 └── README.md                      # Human index
@@ -53,3 +58,4 @@ git commit -m "chore: update kvidai-skills submodule"
 | Skill | Trigger | Description |
 |-------|---------|-------------|
 | `kvidai-video-project` | generate video, create video project, kvidai API, 영상 생성 | Create project + AI agent SSE generate + status poll |
+| `video-use` | edit video, transcribe, cut, grade, subtitle, composite, 영상 편집 | Full conversation-driven editor pipeline; hands off final timeline to kvidai web editor |
