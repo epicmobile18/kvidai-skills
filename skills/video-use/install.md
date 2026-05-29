@@ -89,41 +89,15 @@ Figure out which agent you are running under, and register once. A symlink of th
 
 If you can't tell which agent you're in, ask the user once: "which agent am I running under — Claude Code, Codex, or something else?" Then pick the right target.
 
-### 5. ElevenLabs API key
+### 5. Transcription
 
-Scribe (ElevenLabs) does all transcription. Without a key, nothing transcribes.
+ElevenLabs Scribe is disabled — kvidai voice API will handle transcription in a future update.
+Use `whisper` or `whisperx` locally for transcription in the meantime.
 
-1. Check existing state in this order and stop at the first hit:
-
-    ```bash
-    # a) env var already exported
-    [ -n "$ELEVENLABS_API_KEY" ] && echo "env"
-    # b) .env at repo root already has it
-    grep -q '^ELEVENLABS_API_KEY=..' ~/Developer/video-use/.env 2>/dev/null && echo "dotenv"
-    ```
-
-2. If neither is set, ask the user exactly once:
-
-    > I need an ElevenLabs API key for transcription (word-level timestamps, speaker diarization, filler tagging). Grab one at https://elevenlabs.io/app/settings/api-keys and paste it here — I'll write it to `~/Developer/video-use/.env`. Or if you already have it exported as `ELEVENLABS_API_KEY`, say "use env" and I'll skip.
-
-    When the user pastes a key, write it to `~/Developer/video-use/.env`:
-
-    ```bash
-    printf 'ELEVENLABS_API_KEY=%s\n' "$KEY" > ~/Developer/video-use/.env
-    chmod 600 ~/Developer/video-use/.env
-    ```
-
-    Never echo the key back in tool output. Never commit `.env`.
-
-3. Sanity check with a cheap, quota-free call:
-
-    ```bash
-    curl -s -o /dev/null -w '%{http_code}\n' \
-      -H "xi-api-key: $(sed -n 's/^ELEVENLABS_API_KEY=//p' ~/Developer/video-use/.env)" \
-      https://api.elevenlabs.io/v1/user
-    ```
-
-    `200` means the key works. `401` means the user pasted a wrong/expired key — ask once more and stop. Anything else (network, 5xx), move on and verify during first real transcription.
+```bash
+# Check whisper/whisperx availability
+which whisperx || which whisper || echo "install whisperx: pip install whisperx"
+```
 
 ### 6. Verify end-to-end
 
