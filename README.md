@@ -9,7 +9,7 @@ Agent skills for the kvidai video platform — works with Claude Code, Codex, Go
 | [`kvidai-video-project`](skills/kvidai-video-project/) | Create projects, generate videos via AI agent (SSE), poll status |
 | [`kvidai-media`](skills/kvidai-media/) | Upload media, presigned URL, list/delete assets |
 | [`kvidai-preset`](skills/kvidai-preset/) | Create, list, update, delete presets |
-| [`video-use`](skills/video-use/) | Conversation-driven video editor: transcribe, cut, grade, subtitle, composite |
+| [`kvidai-video-use`](skills/kvidai-video-use/) | Conversation-driven video editor: transcribe, cut, grade, subtitle, composite |
 
 ## Installation
 
@@ -27,7 +27,7 @@ Installs all skills into the current project for all detected agents automatical
 ln -s ../../skills/kvidai-skills/skills/kvidai-video-project .claude/skills/kvidai-video-project
 ln -s ../../skills/kvidai-skills/skills/kvidai-media         .claude/skills/kvidai-media
 ln -s ../../skills/kvidai-skills/skills/kvidai-preset        .claude/skills/kvidai-preset
-ln -s ../../skills/kvidai-skills/skills/video-use            .claude/skills/video-use
+ln -s ../../skills/kvidai-skills/skills/kvidai-video-use     .claude/skills/kvidai-video-use
 ```
 
 ### Option 3 — Git submodule
