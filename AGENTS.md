@@ -6,16 +6,22 @@ Claude Code Agent Skills for the kvidai video platform.
 
 ```
 kvidai-skills/
+├── SKILL.md                       # Root skill hub (discovered via .claude/skills/kvidai-skills symlink)
 ├── skills/
 │   ├── kvidai-video-project/      # Create projects, generate videos via AI agent (SSE)
-│   │   ├── SKILL.md               # Skill definition (name, description, API reference)
-│   │   └── scripts/
-│   │       └── kvidai-client.mjs  # CLI client (Node.js 20+, no tsx needed)
-│   └── video-use/                 # Conversation-driven video editor (transcribe→cut→grade→subtitle→kvidai handoff)
-│       ├── SKILL.md               # Full editing skill (Remotion replaced by kvidai)
-│       ├── install.md             # Setup instructions
-│       ├── helpers/               # Python helpers (transcribe, render, grade, …)
-│       └── skills/manim-video/    # Vendored Manim animation sub-skill
+│   │   ├── SKILL.md
+│   │   └── scripts/kvidai-client.mjs
+│   ├── kvidai-media/              # Media upload/management (presigned URL, CRUD)
+│   │   ├── SKILL.md
+│   │   └── scripts/kvidai-media-client.mjs
+│   ├── kvidai-preset/             # Preset CRUD
+│   │   ├── SKILL.md
+│   │   └── scripts/kvidai-preset-client.mjs
+│   └── kvidai-video-use/          # Conversation-driven video editor
+│       ├── SKILL.md
+│       ├── install.md
+│       ├── helpers/
+│       └── skills/manim-video/
 ├── AGENTS.md                      # This file (AI guide)
 ├── CLAUDE.md                      # Symlink → AGENTS.md
 └── README.md                      # Human index
@@ -34,6 +40,7 @@ kvidai-skills/
    ```
 2. Add any helper scripts to `skills/<skill-name>/scripts/`
 3. Update `README.md` with the new skill entry
+4. In kvidai monorepo, add symlink: `ln -s ../../skills/kvidai-skills/skills/<skill-name> .claude/skills/<skill-name>`
 
 ## Updating an Existing Skill
 
