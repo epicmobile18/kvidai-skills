@@ -1,10 +1,13 @@
-"""Transcribe a video with ElevenLabs Scribe.
+"""Transcribe a video.
 
-Extracts mono 16kHz audio via ffmpeg, uploads to Scribe with verbatim +
-diarize + audio events + word-level timestamps, writes the full response
-to <edit_dir>/transcripts/<video_stem>.json.
+Backend priority:
+  1. KVIDAI_API_KEY set  →  kvidai STT (ElevenLabs Scribe-compatible endpoint)
+  2. fallback            →  faster-whisper locally (pip install faster-whisper)
 
-Cached: if the output file already exists, the upload is skipped.
+Extracts mono 16kHz audio via ffmpeg, sends to the selected backend,
+writes the full response to <edit_dir>/transcripts/<video_stem>.json.
+
+Cached: if the output file already exists the upload/inference is skipped.
 
 Usage:
     python helpers/transcribe.py <video_path>
@@ -27,10 +30,7 @@ from pathlib import Path
 import requests
 
 
-SCRIBE_URL = "https://api.elevenlabs.io/v1/speech-to-text"
-
-
-def load_api_key() -> str:
+def _load_env_key(key_name: str) -> str:
     for candidate in [Path(__file__).resolve().parent.parent / ".env", Path(".env")]:
         if candidate.exists():
             for line in candidate.read_text().splitlines():
@@ -38,12 +38,17 @@ def load_api_key() -> str:
                 if not line or line.startswith("#") or "=" not in line:
                     continue
                 k, v = line.split("=", 1)
-                if k.strip() == "ELEVENLABS_API_KEY":
+                if k.strip() == key_name:
                     return v.strip().strip('"').strip("'")
-    v = os.environ.get("ELEVENLABS_API_KEY", "")
-    if not v:
-        sys.exit("ELEVENLABS_API_KEY not found in .env or environment")
-    return v
+    return os.environ.get(key_name, "")
+
+
+def _kvidai_key() -> str:
+    return _load_env_key("KVIDAI_API_KEY")
+
+
+def _kvidai_base_url() -> str:
+    return _load_env_key("KVIDAI_BASE_URL") or os.environ.get("KVIDAI_BASE_URL", "https://api.kvid.ai")
 
 
 def extract_audio(video_path: Path, dest: Path) -> None:
@@ -55,12 +60,14 @@ def extract_audio(video_path: Path, dest: Path) -> None:
     subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
-def call_scribe(
+def _call_kvidai_stt(
     audio_path: Path,
     api_key: str,
-    language: str | None = None,
-    num_speakers: int | None = None,
+    language: str | None,
+    num_speakers: int | None,
 ) -> dict:
+    """kvidai STT endpoint — ElevenLabs Scribe-compatible request/response."""
+    url = f"{_kvidai_base_url()}/v1/speech-to-text"
     data: dict[str, str] = {
         "model_id": "scribe_v1",
         "diarize": "true",
@@ -74,30 +81,75 @@ def call_scribe(
 
     with open(audio_path, "rb") as f:
         resp = requests.post(
-            SCRIBE_URL,
-            headers={"xi-api-key": api_key},
+            url,
+            headers={"api-key": api_key},
             files={"file": (audio_path.name, f, "audio/wav")},
             data=data,
             timeout=1800,
         )
-
     if resp.status_code != 200:
-        raise RuntimeError(f"Scribe returned {resp.status_code}: {resp.text[:500]}")
-
+        raise RuntimeError(f"kvidai STT {resp.status_code}: {resp.text[:500]}")
     return resp.json()
+
+
+def _call_local_whisper(
+    audio_path: Path,
+    language: str | None,
+) -> dict:
+    """Local transcription via faster-whisper. Returns ElevenLabs-compatible dict."""
+    try:
+        from faster_whisper import WhisperModel
+    except ImportError:
+        sys.exit(
+            "KVIDAI_API_KEY not set and faster-whisper not installed.\n"
+            "  Install: pip install faster-whisper\n"
+            "  Or set KVIDAI_API_KEY to use kvidai STT."
+        )
+
+    model = WhisperModel("large-v2", device="auto", compute_type="auto")
+    kwargs: dict = {"word_timestamps": True}
+    if language:
+        kwargs["language"] = language
+
+    segments, info = model.transcribe(str(audio_path), **kwargs)
+
+    words = []
+    text_parts: list[str] = []
+    for seg in segments:
+        if seg.words:
+            for w in seg.words:
+                words.append({
+                    "text": w.word.strip(),
+                    "start": round(w.start, 3),
+                    "end": round(w.end, 3),
+                    "type": "word",
+                    "speaker_id": "speaker_0",
+                })
+                text_parts.append(w.word.strip())
+        else:
+            text_parts.append(seg.text.strip())
+
+    return {
+        "language_code": info.language,
+        "text": " ".join(text_parts),
+        "words": words,
+        "_source": "faster-whisper",
+    }
 
 
 def transcribe_one(
     video: Path,
     edit_dir: Path,
-    api_key: str,
     language: str | None = None,
     num_speakers: int | None = None,
     verbose: bool = True,
+    # legacy param — ignored, backend resolved from env
+    api_key: str | None = None,
 ) -> Path:
     """Transcribe a single video. Returns path to transcript JSON.
 
-    Cached: returns existing path immediately if the transcript already exists.
+    Backend: kvidai STT if KVIDAI_API_KEY is set, else faster-whisper locally.
+    Cached: returns existing path immediately if transcript already exists.
     """
     transcripts_dir = edit_dir / "transcripts"
     transcripts_dir.mkdir(parents=True, exist_ok=True)
@@ -108,8 +160,11 @@ def transcribe_one(
             print(f"cached: {out_path.name}")
         return out_path
 
+    key = _kvidai_key()
+    backend = "kvidai-stt" if key else "faster-whisper"
+
     if verbose:
-        print(f"  extracting audio from {video.name}", flush=True)
+        print(f"  [{backend}] extracting audio from {video.name}", flush=True)
 
     t0 = time.time()
     with tempfile.TemporaryDirectory() as tmp:
@@ -117,8 +172,11 @@ def transcribe_one(
         extract_audio(video, audio)
         size_mb = audio.stat().st_size / (1024 * 1024)
         if verbose:
-            print(f"  uploading {video.stem}.wav ({size_mb:.1f} MB)", flush=True)
-        payload = call_scribe(audio, api_key, language, num_speakers)
+            print(f"  [{backend}] processing {video.stem}.wav ({size_mb:.1f} MB)", flush=True)
+        if key:
+            payload = _call_kvidai_stt(audio, key, language, num_speakers)
+        else:
+            payload = _call_local_whisper(audio, language)
 
     out_path.write_text(json.dumps(payload, indent=2))
     dt = time.time() - t0
@@ -133,26 +191,16 @@ def transcribe_one(
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description="Transcribe a video with ElevenLabs Scribe")
+    ap = argparse.ArgumentParser(
+        description="Transcribe a video (kvidai STT if KVIDAI_API_KEY set, else faster-whisper)"
+    )
     ap.add_argument("video", type=Path, help="Path to video file")
-    ap.add_argument(
-        "--edit-dir",
-        type=Path,
-        default=None,
-        help="Edit output directory (default: <video_parent>/edit)",
-    )
-    ap.add_argument(
-        "--language",
-        type=str,
-        default=None,
-        help="Optional ISO language code (e.g., 'en'). Omit to auto-detect.",
-    )
-    ap.add_argument(
-        "--num-speakers",
-        type=int,
-        default=None,
-        help="Optional number of speakers when known. Improves diarization accuracy.",
-    )
+    ap.add_argument("--edit-dir", type=Path, default=None,
+                    help="Edit output directory (default: <video_parent>/edit)")
+    ap.add_argument("--language", type=str, default=None,
+                    help="Optional ISO language code (e.g. 'en'). Omit to auto-detect.")
+    ap.add_argument("--num-speakers", type=int, default=None,
+                    help="Optional speaker count. Improves diarization accuracy.")
     args = ap.parse_args()
 
     video = args.video.resolve()
@@ -160,12 +208,9 @@ def main() -> None:
         sys.exit(f"video not found: {video}")
 
     edit_dir = (args.edit_dir or (video.parent / "edit")).resolve()
-    api_key = load_api_key()
-
     transcribe_one(
         video=video,
         edit_dir=edit_dir,
-        api_key=api_key,
         language=args.language,
         num_speakers=args.num_speakers,
     )
